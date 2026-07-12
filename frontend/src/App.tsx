@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Server, Users, Cpu, CheckCircle2, AlertTriangle, X, Shield, Activity, Lock, Mail, Key, LogOut, Trash2, CalendarDays } from 'lucide-react';
+import { Server, Users, CheckCircle2, AlertTriangle, X, Shield, Activity, Lock, Mail, Key, LogOut, Trash2, CalendarDays } from 'lucide-react';
 import { format } from 'date-fns';
 import api from './utils/api';
 
