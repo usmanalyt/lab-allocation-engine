@@ -38,10 +38,11 @@ export default function App() {
       localStorage.setItem('lab_user_id', res.data.userId);
       setToken(res.data.token);
     } catch (error: any) {
-      setAuthError(error.response?.data?.message || 'Authentication failed.');
+      // THIS IS THE FIX: It will now extract and display the exact database rejection reason!
+      const exactError = error.response?.data?.error || error.response?.data?.message || JSON.stringify(error.response?.data) || 'Authentication failed.';
+      setAuthError(`System Rejection: ${exactError}`);
     }
   };
-
   const handleLogout = () => {
     localStorage.removeItem('lab_token');
     localStorage.removeItem('lab_user_id');

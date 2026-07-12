@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
- 
+  url      = "postgresql://postgres:Usman@68714134@db.vqcakbccnfycsigkipvg.supabase.co:5432/postgres"
 }
 
 model User {
@@ -19,12 +19,12 @@ model User {
 }
 
 model Room {
-  id         String    @id @default(uuid())
-  name       String
-  building   String
-  capacity   Int
-  features   Json      
-  bookings   Booking[]
+  id        String    @id @default(uuid())
+  name      String
+  building  String
+  capacity  Int
+  features  Json      
+  bookings  Booking[]
 
   @@map("rooms")
 }
