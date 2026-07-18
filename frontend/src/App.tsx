@@ -1,13 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Server, Users, CheckCircle2, AlertTriangle, X, Shield, Activity, Lock, Mail, Key, LogOut, Trash2, CalendarDays } from 'lucide-react';
 import { format } from 'date-fns';
 import api from './utils/api';
 
 interface Room { id: string; name: string; building: string; capacity: number; features: string[]; }
 interface Booking { id: string; room_id: string; user_id: string; start_time: string; end_time: string; status: string; }
+interface AuthResponse { token: string; userId: string; isAdmin: boolean; }
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (typeof error === 'object' && error && 'response' in error) {
+    const data = (error as { response?: { data?: { message?: string; error?: string } } }).response?.data;
+    return data?.message || data?.error || fallback;
+  }
+  return fallback;
+};
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('lab_token'));
+  const [isAdmin, setIsAdmin] = useState(localStorage.getItem('lab_is_admin') === 'true');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
@@ -20,6 +30,7 @@ export default function App() {
   const [allLocks, setAllLocks] = useState<Booking[]>([]);
   const [myLocks, setMyLocks] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
   
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [startTime, setStartTime] = useState('');
@@ -33,25 +44,27 @@ export default function App() {
     try {
       const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
       const payload = authMode === 'login' ? { email: authEmail, password: authPassword } : { email: authEmail, password: authPassword, name: authName };
-      const res = await api.post(endpoint, payload);
+      const res = await api.post<AuthResponse>(endpoint, payload);
       localStorage.setItem('lab_token', res.data.token);
-      localStorage.setItem('lab_user_id', res.data.userId);
+      localStorage.setItem('lab_is_admin', String(res.data.isAdmin));
+      setIsAdmin(res.data.isAdmin);
       setToken(res.data.token);
-    } catch (error: any) {
-      // THIS IS THE FIX: It will now extract and display the exact database rejection reason!
-      const exactError = error.response?.data?.error || error.response?.data?.message || JSON.stringify(error.response?.data) || 'Authentication failed.';
-      setAuthError(`System Rejection: ${exactError}`);
+    } catch (error) {
+      setAuthError(getErrorMessage(error, 'Authentication failed.'));
     }
   };
   const handleLogout = () => {
     localStorage.removeItem('lab_token');
-    localStorage.removeItem('lab_user_id');
+    localStorage.removeItem('lab_is_admin');
     setToken(null);
+    setIsAdmin(false);
+    setViewMode('student');
   };
 
   useEffect(() => {
     if (!token) return;
     const fetchData = async () => {
+      setLoading(true);
       try {
         const roomsRes = await api.get('/api/bookings/list/all');
         setRooms(roomsRes.data);
@@ -64,33 +77,31 @@ export default function App() {
           setMyLocks(myLocksRes.data);
         }
       } catch (error) {
-        console.error("System failure", error);
+        setTxStatus({ type: 'error', title: 'Unable to load data', message: getErrorMessage(error, 'Please try again shortly.') });
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, [viewMode, txStatus, token]);
+  }, [viewMode, refreshKey, token]);
 
   const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoom) return;
     setSubmitting(true);
     setTxStatus(null);
-    const activeUserId = localStorage.getItem('lab_user_id');
-
     try {
       await api.post('/api/bookings', {
         room_id: selectedRoom.id,
-        user_id: activeUserId,
         start_time: new Date(startTime).toISOString(),
         end_time: new Date(endTime).toISOString(),
       });
-      setTxStatus({ type: 'success', title: 'Resource Secured', message: 'Time window locked to your session.' });
+      setTxStatus({ type: 'success', title: 'Reservation confirmed', message: 'Your lab session has been scheduled.' });
       setSelectedRoom(null); setStartTime(''); setEndTime('');
-      setViewMode('my-bookings'); // Instantly route them to their bookings tab!
-    } catch (error: any) {
-      setTxStatus({ type: 'error', title: 'Conflict Detected', message: error.response?.data?.message || 'Transaction failed.' });
+      setViewMode('my-bookings');
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setTxStatus({ type: 'error', title: 'Reservation unavailable', message: getErrorMessage(error, 'Unable to create the reservation.') });
     } finally {
       setSubmitting(false);
     }
@@ -102,9 +113,10 @@ export default function App() {
       await api.delete(`/api/bookings/${lockId}`);
       setAllLocks(prev => prev.filter(lock => lock.id !== lockId));
       setMyLocks(prev => prev.filter(lock => lock.id !== lockId));
-      setTxStatus({ type: 'success', title: 'Lock Terminated', message: 'Reservation successfully destroyed.' });
-    } catch (error: any) {
-      setTxStatus({ type: 'error', title: 'Revocation Failed', message: 'Could not destroy the lock.' });
+      setTxStatus({ type: 'success', title: 'Reservation cancelled', message: 'The session has been removed.' });
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setTxStatus({ type: 'error', title: 'Cancellation failed', message: getErrorMessage(error, 'Unable to cancel the reservation.') });
     }
   };
 
@@ -144,7 +156,7 @@ export default function App() {
           <div className="bg-slate-200 p-1 rounded-lg flex gap-1">
             <button onClick={() => setViewMode('student')} className={`px-4 py-2 text-sm font-bold rounded-md ${viewMode === 'student' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Hardware Grid</button>
             <button onClick={() => setViewMode('my-bookings')} className={`px-4 py-2 text-sm font-bold rounded-md ${viewMode === 'my-bookings' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>My Sessions</button>
-            <button onClick={() => setViewMode('admin')} className={`px-4 py-2 text-sm font-bold rounded-md ${viewMode === 'admin' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Overwatch</button>
+            {isAdmin && <button onClick={() => setViewMode('admin')} className={`px-4 py-2 text-sm font-bold rounded-md ${viewMode === 'admin' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Admin</button>}
           </div>
         </div>
       </header>
@@ -247,10 +259,10 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl border w-full max-w-md p-6 relative">
             <button onClick={() => setSelectedRoom(null)} className="absolute top-4 right-4 text-slate-400"><X size={20} /></button>
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Secure Reservation</h2>
+            <h2 className="text-xl font-bold text-slate-900 mb-1">Reserve {selectedRoom.name}</h2>
             <form onSubmit={handleBookingSubmit} className="space-y-4 mt-4">
-              <input type="datetime-local" required value={startTime} onChange={(e) => setStartTime(e.target.value)} className="w-full border p-2.5 rounded-lg text-sm bg-slate-50" />
-              <input type="datetime-local" required value={endTime} onChange={(e) => setEndTime(e.target.value)} className="w-full border p-2.5 rounded-lg text-sm bg-slate-50" />
+              <label className="block text-sm font-medium text-slate-700">Start time<input type="datetime-local" required min={new Date().toISOString().slice(0, 16)} value={startTime} onChange={(e) => setStartTime(e.target.value)} className="mt-1 w-full border p-2.5 rounded-lg text-sm bg-slate-50" /></label>
+              <label className="block text-sm font-medium text-slate-700">End time<input type="datetime-local" required min={startTime || new Date().toISOString().slice(0, 16)} value={endTime} onChange={(e) => setEndTime(e.target.value)} className="mt-1 w-full border p-2.5 rounded-lg text-sm bg-slate-50" /></label>
               <button type="submit" disabled={submitting} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-3 rounded-lg">{submitting ? 'Locking...' : 'Confirm Session'}</button>
             </form>
           </div>

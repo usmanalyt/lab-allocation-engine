@@ -1,26 +1,26 @@
 import 'dotenv/config';
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
+import { prisma } from '../lib/prisma';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
-
-// PRISMA 7 FIX: Construct the connection pool and adapter
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+const JWT_SECRET = process.env.JWT_SECRET;
+const adminEmails = new Set((process.env.ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
 
 // Validation Schema for Registration/Login
 const AuthSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
-  name: z.string().optional(),
+  name: z.string().trim().min(2).max(100).optional(),
 });
+
+function createToken(userId: string, email: string) {
+  if (!JWT_SECRET) throw new Error('JWT_SECRET must be configured before starting the server.');
+  const isAdmin = adminEmails.has(email.toLowerCase());
+  return { token: jwt.sign({ userId, isAdmin }, JWT_SECRET, { expiresIn: '8h' }), isAdmin };
+}
 
 // 1. REGISTER NEW USER
 router.post('/register', async (req: Request, res: Response): Promise<any> => {
@@ -46,11 +46,13 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
     });
 
     // Generate JWT Keycard
-    const token = jwt.sign({ userId: newUser.id }, JWT_SECRET, { expiresIn: '8h' });
+    const { token, isAdmin } = createToken(newUser.id, newUser.email);
 
-    return res.status(201).json({ message: 'User registered successfully', token, userId: newUser.id });
-  } catch (error: any) {
-    return res.status(400).json({ error: 'Registration failed', details: error.message });
+    return res.status(201).json({ message: 'User registered successfully', token, userId: newUser.id, name: newUser.name, isAdmin });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid registration details', message: 'Use a valid email and a password with at least 6 characters.' });
+    console.error('Registration failed:', error);
+    return res.status(500).json({ error: 'Registration failed', message: 'Unable to create your account.' });
   }
 });
 
@@ -72,11 +74,13 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
     }
 
     // Generate JWT Keycard
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '8h' });
+    const { token, isAdmin } = createToken(user.id, user.email);
 
-    return res.json({ message: 'Authentication successful', token, userId: user.id, name: user.name });
-  } catch (error: any) {
-    return res.status(400).json({ error: 'Login failed', details: error.message });
+    return res.json({ message: 'Authentication successful', token, userId: user.id, name: user.name, isAdmin });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid credentials', message: 'Enter a valid email and password.' });
+    console.error('Login failed:', error);
+    return res.status(500).json({ error: 'Login failed', message: 'Unable to sign in right now.' });
   }
 });
 

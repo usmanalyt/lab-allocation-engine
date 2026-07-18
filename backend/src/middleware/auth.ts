@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 
 // Extend the standard Express Request so we can attach the user's ID to it
 export interface AuthRequest extends Request {
-  user?: any;
+  user?: { userId: string; isAdmin: boolean };
 }
 
 export const requireAuth = (req: AuthRequest, res: Response, next: NextFunction): any => {
@@ -19,10 +19,21 @@ export const requireAuth = (req: AuthRequest, res: Response, next: NextFunction)
 
   // 3. Mathematically verify the signature using your secret key
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
-    req.user = decoded; // Attach the validated user data to the request
+    if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is not configured.');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (typeof decoded !== 'object' || !decoded.userId || typeof decoded.userId !== 'string') {
+      return res.status(403).json({ error: 'Forbidden', message: 'Invalid keycard payload.' });
+    }
+    req.user = { userId: decoded.userId, isAdmin: decoded.isAdmin === true };
     next(); // Everything checks out, let them pass!
   } catch (error) {
     return res.status(403).json({ error: 'Forbidden', message: 'Invalid, forged, or expired keycard.' });
   }
+};
+
+export const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.user?.isAdmin) {
+    return res.status(403).json({ error: 'Forbidden', message: 'Administrator access is required.' });
+  }
+  next();
 };
