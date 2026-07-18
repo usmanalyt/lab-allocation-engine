@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { Loader2, CalendarDays, Trash2, Clock, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
-import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
+import { Card, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { motion } from 'framer-motion';
 
