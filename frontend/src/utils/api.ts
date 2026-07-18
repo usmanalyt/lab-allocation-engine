@@ -14,4 +14,17 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Add response interceptor to catch Vercel SPA routing returning index.html instead of an API error
+api.interceptors.response.use(
+  (response) => {
+    if (typeof response.data === 'string' && response.data.toLowerCase().includes('<!doctype html>')) {
+      return Promise.reject(new Error("API returned an HTML page. Please verify your VITE_API_URL environment variable in Vercel is pointing to your backend."));
+    }
+    return response;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
 export default api;
