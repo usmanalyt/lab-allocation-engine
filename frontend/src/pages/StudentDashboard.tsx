@@ -91,7 +91,7 @@ export function StudentDashboard() {
               </CardHeader>
               <CardContent className="flex-grow">
                  <div className="flex flex-wrap gap-2">
-                    {room.features && room.features.map(f => (
+                    {Array.isArray(room.features) && room.features.map(f => (
                        <span key={f} className="text-[10px] uppercase tracking-wider font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md">
                          {f}
                        </span>
